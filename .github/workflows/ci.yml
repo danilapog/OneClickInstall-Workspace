@@ -132,6 +132,8 @@ jobs:
               }
             ]
           }' | jq -c '{include: [.include[] | select(.execute == true)]}')
+          echo ${matrix} | jq -r 
+          echo ${matrix} | jq -c
           echo "matrix=${matrix}" >> $GITHUB_OUTPUT
 
   vagrant-up:
