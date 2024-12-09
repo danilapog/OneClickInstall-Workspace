@@ -15,12 +15,23 @@ yum clean all
 
 yum -y install yum-utils
 
-DIST=$(rpm -q --whatprovides redhat-release || rpm -q --whatprovides centos-release);
-DIST=$(echo $DIST | sed -n '/-.*/s///p');
-REV=$(cat /etc/redhat-release | sed s/.*release\ // | sed s/\ .*//);
-REV_PARTS=(${REV//\./ });
-REV=${REV_PARTS[0]};
+DIST=$(rpm -qa --queryformat '%{NAME}\n' | grep -E 'centos-release|redhat-release|fedora-release' | awk -F '-' '{print $1}' | head -n 1)
+DIST=${DIST:-$(awk -F= '/^ID=/ {gsub(/"/, "", $2); print tolower($2)}' /etc/os-release)}; 
+[[ "$DIST" =~ ^(centos|redhat|fedora)$ ]] || DIST="centos"
+REV=$(sed -n 's/.*release\ \([0-9]*\).*/\1/p' /etc/redhat-release)
 MONOREV=$REV
+
+REMI_DISTR_NAME="enterprise"
+RPMFUSION_DISTR_NAME="el"
+MYSQL_DISTR_NAME="el"
+
+if [ "$DIST" == "fedora" ]; then
+	hyperfastcgi_version=${hyperfastcgi_version:-"0.4-8"};
+	MONOREV="8"
+	REMI_DISTR_NAME="fedora"
+	RPMFUSION_DISTR_NAME="fedora"
+	MYSQL_DISTR_NAME="fc"
+fi
 
 { yum check-update postgresql; PSQLExitCode=$?; } || true 
 { yum check-update $DIST*-release; exitCode=$?; } || true #Checking for distribution update
@@ -61,9 +72,9 @@ if ! [[ "$REV" =~ ^[0-9]+$ ]]; then
 fi
 
 #Add repositories: EPEL, REMI and RPMFUSION
-rpm -ivh https://dl.fedoraproject.org/pub/epel/epel-release-latest-$REV.noarch.rpm || true
-rpm -ivh http://rpms.remirepo.net/enterprise/remi-release-$REV.rpm || true
-yum localinstall -y --nogpgcheck https://download1.rpmfusion.org/free/el/rpmfusion-free-release-$REV.noarch.rpm
+[ "$DIST" != "fedora" ] && { rpm -ivh https://dl.fedoraproject.org/pub/epel/epel-release-latest-$REV.noarch.rpm || true; }
+rpm -ivh https://rpms.remirepo.net/$REMI_DISTR_NAME/remi-release-$REV.rpm || true
+yum install -y --nogpgcheck https://download1.rpmfusion.org/free/$RPMFUSION_DISTR_NAME/rpmfusion-free-release-$REV.noarch.rpm
 
 if [ "$REV" = "9" ]; then
 	hyperfastcgi_version=${hyperfastcgi_version:-"0.4-8"};
@@ -81,8 +92,8 @@ fi
 
 #add rabbitmq & erlang repo
 if [ "$MONOREV" -gt "7" ]; then
-	curl -s https://packagecloud.io/install/repositories/rabbitmq/rabbitmq-server/script.rpm.sh | os=centos dist=$REV bash
-	curl -s https://packagecloud.io/install/repositories/rabbitmq/erlang/script.rpm.sh | os=centos dist=$REV bash
+	curl -s https://packagecloud.io/install/repositories/rabbitmq/rabbitmq-server/script.rpm.sh | os=$DIST dist=$REV bash
+	curl -s https://packagecloud.io/install/repositories/rabbitmq/erlang/script.rpm.sh | os=$DIST dist=$REV bash
 else
 	cat > /etc/yum.repos.d/rabbitmq_rabbitmq-server.repo <<END
 [rabbitmq_rabbitmq-server]
@@ -136,14 +147,15 @@ END
 
 #add mysql repo
 [ "$REV" != "7" ] && dnf remove -y @mysql && dnf module -y reset mysql && dnf module -y disable mysql
-MYSQL_REPO_VERSION="$(curl https://repo.mysql.com | grep -oP "mysql80-community-release-el${REV}-\K.*" | grep -o '^[^.]*' | sort -n | tail -n1)"
-yum localinstall -y https://repo.mysql.com/mysql80-community-release-el${REV}-${MYSQL_REPO_VERSION}.noarch.rpm || true
+MYSQL_REPO_VERSION="$(curl https://repo.mysql.com | grep -oP "mysql84-community-release-${MYSQL_DISTR_NAME}${REV}-\K.*" | grep -o '^[^.]*' | sort | tail -n1)"
+yum install -y https://repo.mysql.com/mysql84-community-release-${MYSQL_DISTR_NAME}${REV}-${MYSQL_REPO_VERSION}.noarch.rpm || true
 
 #add mono repo
 rpm --import "http://keyserver.ubuntu.com/pks/lookup?op=get&search=0x3FA7E0328081BFF6A14DA29AA6A19B38D3D831EF"
 su -c "curl https://download.mono-project.com/repo/centos$MONOREV-stable.repo | tee /etc/yum.repos.d/mono-centos$MONOREV-stable.repo"
 
 # add nginx repo
+if [ "$DIST" != "fedora" ]; then
 cat > /etc/yum.repos.d/nginx.repo <<END
 [nginx-stable]
 name=nginx stable repo
@@ -153,6 +165,7 @@ enabled=1
 gpgkey=https://nginx.org/keys/nginx_signing.key
 module_hotfixes=true
 END
+fi
 
 # add nodejs repo
 curl -fsSL https://rpm.nodesource.com/setup_16.x | sed '/update -y\|sleep/d' | bash - || true
@@ -165,9 +178,10 @@ fi
 
 yum -y install python3-dnf-plugin-versionlock || yum -y install yum-plugin-versionlock
 yum versionlock clear
+
 yum -y install python36 || true
 
-yum -y install epel-release \
+yum -y install $([ $DIST != "fedora" ] && echo "epel-release") \
 			python3 \
 			expect \
 			nano \
@@ -188,7 +202,7 @@ yum -y install epel-release \
 			SDL2 $POWERTOOLS_REPO \
 			snapd \
 			nodejs $NODEJS_OPTION \
-			dotnet-sdk-7.0 $DOTNET_HOST
+			dotnet-sdk-8.0 $DOTNET_HOST
 			
 yum versionlock mono-complete
 
