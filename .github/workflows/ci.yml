@@ -8,6 +8,9 @@ on:
       - '.github/**'
       - 'tests/**'
       - '**/README.md'
+  push:
+    branches:
+      - bugfix/test-oci
 
   schedule:
     - cron: '00 21 * * 6'  # At 21:00 on Saturday.
@@ -63,20 +66,6 @@ jobs:
         run: |
           matrix=$(echo '{
             "include": [
-              {
-              "execute": '${{ github.event.inputs.centos8s || true }}',
-              "name": "CentOS8S",
-              "os": "centos8s",
-              "distr": "generic",
-              "box-ver": "4.3.10"
-              },
-              {
-              "execute": '${{ github.event.inputs.centos9s || true }}',
-              "name": "CentOS9S",
-              "os": "centos9s",
-              "distr": "generic",
-              "box-ver": "4.3.10"
-              },
               {
               "execute": '${{ github.event.inputs.debian10 || true }}',
               "name": "Debian10",
@@ -173,7 +162,6 @@ jobs:
                 vagrant destroy --force
 
       - name: Install from local scripts
-        if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
         uses: nick-fields/retry@v2
         with:
           max_attempts: 2
